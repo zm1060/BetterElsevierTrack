@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "Elsevier Submission Tracker",
+  "version": "1.0",
+  "description": "Track paper submission status on Elsevier",
+  "permissions": [
+    "webRequest",
+    "scripting",
+    "activeTab",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://track.authorhub.elsevier.com/*",
+    "https://*/tracker/*"
+],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://track.authorhub.elsevier.com/*",
+        "https://*/tracker/*"
+      ],
+      "js": ["content.js"],
+      "css": ["styles.css"],
+      "run_at": "document_start"
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  }
+} 
