@@ -1,30 +1,42 @@
 {
   "manifest_version": 3,
-  "name": "Elsevier Submission Tracker",
+  "name": "论文审稿状态监控",
   "version": "1.0",
-  "description": "Track paper submission status on Elsevier",
+  "description": "实时监控论文审稿状态变化，及时获取邮件通知",
   "permissions": [
     "webRequest",
     "scripting",
     "activeTab",
-    "tabs"
+    "tabs",
+    "storage",
+    "notifications",
+    "alarms"
   ],
   "host_permissions": [
     "https://track.authorhub.elsevier.com/*",
-    "https://*/tracker/*"
-],
+    "https://*/tracker/*",
+    "https://dsp-api.elsevier.cn/*",
+    "http://127.0.0.1:5000/*"
+  ],
   "content_scripts": [
     {
       "matches": [
         "https://track.authorhub.elsevier.com/*",
-        "https://*/tracker/*"
+        "https://*/tracker/*",
+        "https://dsp-api.elsevier.cn/*"
       ],
       "js": ["content.js"],
-      "css": ["styles.css"],
       "run_at": "document_start"
     }
   ],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
   }
 } 
