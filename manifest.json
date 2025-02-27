@@ -16,7 +16,7 @@
     "https://track.authorhub.elsevier.com/*",
     "https://*/tracker/*",
     "https://dsp-api.elsevier.cn/*",
-    "http://127.0.0.1:5000/*"
+    "http://39.108.213.152:5000/*"
   ],
   "content_scripts": [
     {
