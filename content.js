@@ -94,25 +94,36 @@ function formatDateTime(timestamp) {
   }
   
   /************************************
-   * 3️⃣ 将 ReviewEvents 按 reviewerId 聚合
+   * 3️⃣ 将 ReviewEvents 按 reviewerId 和 revision 聚合
    *    并设置状态：未接收、已接收、已完成
    ************************************/
   function aggregateReviewers(events) {
     const reviewers = [];
-    const reviewerMap = new Map();
+    // 使用 Map 来存储每个修改版本的审稿人
+    const revisionMap = new Map();
     
     if (!events || !Array.isArray(events)) return reviewers;
     
     events.forEach(event => {
         const id = event.Id;
+        const revision = event.Revision;
+        
+        // 确保该修改版本存在于 Map 中
+        if (!revisionMap.has(revision)) {
+            revisionMap.set(revision, new Map());
+        }
+        
+        const reviewerMap = revisionMap.get(revision);
+        
         if (!reviewerMap.has(id)) {
             reviewerMap.set(id, {
                 Id: id,
+                Revision: revision,
                 Status: 'Invited',
                 InvitedDate: null,
                 AcceptedDate: null,
                 CompletedDate: null,
-                LastUpdateDate: null // 添加最后更新时间
+                LastUpdateDate: null
             });
         }
         
@@ -133,30 +144,42 @@ function formatDateTime(timestamp) {
         }
     });
     
-    // 转换为数组并排序
-    const sortedReviewers = Array.from(reviewerMap.values());
+    // 将所有审稿人按照修改版本整理到数组中
+    const allReviewers = [];
     
-    // 排序规则：
-    // 1. 已完成的排在前面
-    // 2. 正在审稿的排在中间
-    // 3. 仅被邀请的排在最后
-    // 4. 同状态下按最后更新时间倒序
-    sortedReviewers.sort((a, b) => {
-        const statusOrder = {
-            'Completed': 0,
-            'In Review': 1,
-            'Invited': 2
-        };
+    // 获取所有版本号并排序
+    const revisions = Array.from(revisionMap.keys()).sort((a, b) => a - b);
+    
+    revisions.forEach(revision => {
+        const reviewerMap = revisionMap.get(revision);
         
-        if (statusOrder[a.Status] !== statusOrder[b.Status]) {
-            return statusOrder[a.Status] - statusOrder[b.Status];
-        }
+        // 获取该版本的所有审稿人
+        const revisionReviewers = Array.from(reviewerMap.values());
         
-        // 同状态按最后更新时间倒序
-        return b.LastUpdateDate - a.LastUpdateDate;
+        // 排序规则：先按状态，再按最后更新时间
+        revisionReviewers.sort((a, b) => {
+            const statusOrder = {
+                'Completed': 0,
+                'In Review': 1,
+                'Invited': 2
+            };
+            
+            if (statusOrder[a.Status] !== statusOrder[b.Status]) {
+                return statusOrder[a.Status] - statusOrder[b.Status];
+            }
+            
+            // 同状态按最后更新时间倒序
+            return b.LastUpdateDate - a.LastUpdateDate;
+        });
+        
+        // 添加该版本的所有审稿人到结果数组
+        allReviewers.push({
+            revision: revision,
+            reviewers: revisionReviewers
+        });
     });
     
-    return sortedReviewers;
+    return allReviewers;
   }
   
   /************************************
@@ -234,18 +257,20 @@ function formatDateTime(timestamp) {
     // 更新面板数据
     updateMonitorPanel(data);
     
-    // 聚合审稿人数据
-    const reviewers = aggregateReviewers(data.ReviewEvents);
+    // 聚合审稿人数据（按修改版本分组）
+    const reviewersByRevision = aggregateReviewers(data.ReviewEvents);
     
-    // 计算响应时间和审稿时间
-    reviewers.forEach(reviewer => {
-        reviewer.ResponseTime = calcDaysDiff(reviewer.InvitedDate, reviewer.AcceptedDate);
-        reviewer.ReviewTime = calcDaysDiff(reviewer.AcceptedDate, reviewer.CompletedDate);
+    // 计算每个审稿人的响应时间和审稿时间
+    reviewersByRevision.forEach(revisionGroup => {
+        revisionGroup.reviewers.forEach(reviewer => {
+            reviewer.ResponseTime = calcDaysDiff(reviewer.InvitedDate, reviewer.AcceptedDate);
+            reviewer.ReviewTime = calcDaysDiff(reviewer.AcceptedDate, reviewer.CompletedDate);
+        });
     });
     
     // 渲染详细审稿人卡片
     if (document.querySelector('.show-detailed-view')) {
-        renderDetailedReviewerCards(reviewers);
+        renderDetailedReviewerCards(reviewersByRevision);
     }
     
     // 添加"查看详细"按钮（如果不存在）
@@ -263,7 +288,7 @@ function formatDateTime(timestamp) {
                         existingCards.style.display = existingCards.style.display === 'none' ? 'block' : 'none';
                         detailButton.textContent = existingCards.style.display === 'none' ? '📊 查看详细审稿状态' : '📊 隐藏详细状态';
                     } else {
-                        renderDetailedReviewerCards(reviewers);
+                        renderDetailedReviewerCards(reviewersByRevision);
                         detailButton.textContent = '📊 隐藏详细状态';
                     }
                 };
@@ -303,19 +328,23 @@ function formatDateTime(timestamp) {
     const panel = document.querySelector('.monitor-panel');
     if (!panel) return;
     
-    // 聚合审稿人数据
-    const reviewers = aggregateReviewers(data.ReviewEvents);
+    // 聚合审稿人数据（现在返回的是按修改版本分组的数据）
+    const reviewersByRevision = aggregateReviewers(data.ReviewEvents);
     
-    // 计算统计数据
+    // 提取最新的修改版本（通常是最后一个）
+    const latestRevision = reviewersByRevision[reviewersByRevision.length - 1];
+    
+    // 计算统计数据 - 只显示最新修改版本的统计
+    const latestReviewers = latestRevision ? latestRevision.reviewers : [];
     const stats = {
-        completed: reviewers.filter(r => r.Status === 'Completed').length,
-        accepted: reviewers.filter(r => r.Status === 'In Review').length,
-        invited: reviewers.filter(r => r.Status === 'Invited').length,
-        total: reviewers.length
+        total: latestReviewers.length,
+        completed: latestReviewers.filter(r => r.Status === 'Completed').length,
+        accepted: latestReviewers.filter(r => r.Status === 'In Review').length,
+        invited: latestReviewers.filter(r => r.Status === 'Invited').length
     };
     
     // 计算响应时间和审稿时间
-    reviewers.forEach(reviewer => {
+    latestReviewers.forEach(reviewer => {
         reviewer.ResponseTime = calcDaysDiff(reviewer.InvitedDate, reviewer.AcceptedDate);
         reviewer.ReviewTime = calcDaysDiff(reviewer.AcceptedDate, reviewer.CompletedDate);
     });
@@ -326,6 +355,20 @@ function formatDateTime(timestamp) {
     
     if (titleEl) titleEl.textContent = data.ManuscriptTitle || '未知标题';
     if (journalEl) journalEl.textContent = data.JournalName || data.JournalAcronym || '未知期刊';
+    
+    // 添加当前修改版本信息
+    const currentRevision = data.LatestRevisionNumber || 0;
+    if (panel.querySelector('.paper-revision')) {
+        panel.querySelector('.paper-revision').textContent = `修改版本: #${currentRevision}`;
+    } else if (journalEl) {
+        const revisionEl = document.createElement('div');
+        revisionEl.className = 'paper-revision';
+        revisionEl.textContent = `修改版本: #${currentRevision}`;
+        revisionEl.style.fontSize = '13px';
+        revisionEl.style.color = '#5f6368';
+        revisionEl.style.marginTop = '5px';
+        journalEl.parentNode.appendChild(revisionEl);
+    }
     
     // 添加统计信息区域（如果不存在）
     if (!panel.querySelector('.stats-section')) {
@@ -364,7 +407,7 @@ function formatDateTime(timestamp) {
             <div class="reviewer-list">
                 <div class="reviewer-list-header">审稿人状态</div>
                 <div class="reviewer-items">
-                    ${reviewers.map(reviewer => `
+                    ${latestReviewers.map(reviewer => `
                         <div class="reviewer-item ${reviewer.Status.toLowerCase().replace(' ', '-')}">
                             <span class="reviewer-id">#${reviewer.Id}</span>
                             <span class="reviewer-status ${reviewer.Status.toLowerCase().replace(' ', '-')}">${getStatusText(reviewer.Status)}</span>
@@ -410,22 +453,23 @@ function formatDateTime(timestamp) {
         }
     } else {
         // 更新已有的统计信息
-        panel.querySelector('#invitedCount').textContent = stats.invited;
-        panel.querySelector('#acceptedCount').textContent = stats.accepted;
+        panel.querySelector('#invitedCount').textContent = stats.total;
+        panel.querySelector('#acceptedCount').textContent = stats.accepted + stats.completed;
         panel.querySelector('#completedCount').textContent = stats.completed;
         
         // 更新进度条
         const progressFill = panel.querySelector('.progress-fill');
         const progressLabel = panel.querySelector('.progress-label span:last-child');
         if (progressFill && progressLabel) {
-            progressFill.style.width = `${(stats.completed / stats.total) * 100}%`;
-            progressLabel.textContent = `${stats.completed}/${stats.total} 完成`;
+            const denominator = stats.accepted + stats.completed || 1; // 避免除以零
+            progressFill.style.width = `${(stats.completed / denominator) * 100}%`;
+            progressLabel.textContent = `${stats.completed}/${denominator} 完成`;
         }
         
         // 更新审稿人列表
         const reviewerItems = panel.querySelector('.reviewer-items');
         if (reviewerItems) {
-            reviewerItems.innerHTML = reviewers.map(reviewer => {
+            reviewerItems.innerHTML = latestReviewers.map(reviewer => {
                 // 获取状态对应的图标和颜色
                 const statusConfig = {
                     'Completed': {
@@ -1026,8 +1070,8 @@ function initializeMonitorPanel(data) {
     });
 }
 
-// 添加一个新函数，用于渲染详细的审稿人卡片
-function renderDetailedReviewerCards(reviewers) {
+// 修改渲染详细审稿人卡片的函数
+function renderDetailedReviewerCards(reviewersByRevision) {
     // 如果已存在，则先移除
     let existingCards = document.querySelector('.reviewer-cards-container');
     if (existingCards) {
@@ -1038,105 +1082,135 @@ function renderDetailedReviewerCards(reviewers) {
     const cardsContainer = document.createElement('div');
     cardsContainer.className = 'reviewer-cards-container';
     
-    // 添加标题和统计信息
-    const stats = {
-        total: reviewers.length,
-        completed: reviewers.filter(r => r.Status === 'Completed').length,
-        inReview: reviewers.filter(r => r.Status === 'In Review').length,
-        invited: reviewers.filter(r => r.Status === 'Invited').length
-    };
-    
+    // 添加标题
     cardsContainer.innerHTML = `
         <div class="cards-header">
-            <h2 class="cards-title">审稿人详细状态</h2>
-            <div class="cards-stats">
-                <span class="stat-badge completed">已完成: ${stats.completed}</span>
-                <span class="stat-badge in-review">审稿中: ${stats.inReview + stats.completed}</span>
-                <span class="stat-badge invited">已邀请: ${stats.invited + stats.inReview + stats.completed}</span>
-            </div>
+            <h2 class="cards-title">审稿详细状态（按修改版本）</h2>
         </div>
-        <div class="cards-grid"></div>
     `;
     
-    // 添加卡片到网格
-    const cardsGrid = cardsContainer.querySelector('.cards-grid');
+    // 倒序处理修改版本，使最新的显示在前面
+    const reversedRevisions = [...reviewersByRevision].reverse();
     
-    reviewers.forEach(reviewer => {
-        const statusConfig = {
-            'Completed': {
-                icon: '✅',
-                color: '#34a853',
-                bgColor: '#e6f4ea',
-                text: '已完成审稿'
-            },
-            'In Review': {
-                icon: '🔍',
-                color: '#4285f4',
-                bgColor: '#e8f0fe',
-                text: '正在审稿'
-            },
-            'Invited': {
-                icon: '⏳',
-                color: '#fbbc05',
-                bgColor: '#fef7e0',
-                text: '已邀请'
-            }
-        }[reviewer.Status];
+    // 为每个修改版本创建一个区域
+    reversedRevisions.forEach(revisionGroup => {
+        const reviewers = revisionGroup.reviewers;
+        const revision = revisionGroup.revision;
         
-        const card = document.createElement('div');
-        card.className = `reviewer-card status-${reviewer.Status.toLowerCase().replace(' ', '-')}`;
-        card.style.borderColor = statusConfig.color;
-        card.style.backgroundColor = statusConfig.bgColor;
+        // 计算该版本的统计信息
+        const stats = {
+            total: reviewers.length,
+            completed: reviewers.filter(r => r.Status === 'Completed').length,
+            inReview: reviewers.filter(r => r.Status === 'In Review').length,
+            invited: reviewers.filter(r => r.Status === 'Invited').length
+        };
         
-        // 计算时间
-        const responseTime = reviewer.ResponseTime ? `${reviewer.ResponseTime} 天` : '进行中';
-        const reviewTime = reviewer.ReviewTime ? `${reviewer.ReviewTime} 天` : '进行中';
-        
-        card.innerHTML = `
-            <div class="card-header" style="color: ${statusConfig.color}">
-                <span class="reviewer-number">#${reviewer.Id}</span>
-                <span class="reviewer-status-badge">
-                    ${statusConfig.icon} ${statusConfig.text}
-                </span>
-            </div>
-            <div class="card-body">
-                <div class="timeline">
-                    <div class="timeline-item ${reviewer.InvitedDate ? 'completed' : ''}">
-                        <div class="timeline-icon">📨</div>
-                        <div class="timeline-content">
-                            <div class="timeline-title">邀请审稿</div>
-                            <div class="timeline-date">${formatDateTime(reviewer.InvitedDate)}</div>
-                        </div>
-                    </div>
-                    <div class="timeline-item ${reviewer.AcceptedDate ? 'completed' : ''}">
-                        <div class="timeline-icon">👍</div>
-                        <div class="timeline-content">
-                            <div class="timeline-title">接受邀请</div>
-                            <div class="timeline-date">${formatDateTime(reviewer.AcceptedDate)}</div>
-                        </div>
-                    </div>
-                    <div class="timeline-item ${reviewer.CompletedDate ? 'completed' : ''}">
-                        <div class="timeline-icon">✅</div>
-                        <div class="timeline-content">
-                            <div class="timeline-title">完成审稿</div>
-                            <div class="timeline-date">${formatDateTime(reviewer.CompletedDate)}</div>
-                        </div>
-                    </div>
+        // 创建该版本的区域
+        const revisionSection = document.createElement('div');
+        revisionSection.className = 'revision-section';
+        revisionSection.innerHTML = `
+            <div class="revision-header">
+                <h3 class="revision-title">修改版本 #${revision}</h3>
+                <div class="revision-stats">
+                    <span class="stat-badge completed">已完成: ${stats.completed}</span>
+                    <span class="stat-badge in-review">审稿中: ${stats.inReview}</span>
+                    <span class="stat-badge invited">已邀请: ${stats.total}</span>
                 </div>
-                <div class="time-stats">
-                    <div class="time-stat">
-                        <div class="stat-label">响应时间</div>
-                        <div class="stat-value">${responseTime}</div>
+                <div class="progress-container">
+                    <div class="progress-label">
+                        <span>审稿进度</span>
+                        <span>${stats.completed}/${stats.total} 完成</span>
                     </div>
-                    <div class="time-stat">
-                        <div class="stat-label">审稿时间</div>
-                        <div class="stat-value">${reviewTime}</div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: ${(stats.completed / stats.total) * 100}%"></div>
                     </div>
                 </div>
             </div>
+            <div class="cards-grid"></div>
         `;
         
-        cardsGrid.appendChild(card);
+        cardsContainer.appendChild(revisionSection);
+        
+        // 添加卡片到网格
+        const cardsGrid = revisionSection.querySelector('.cards-grid');
+        
+        reviewers.forEach(reviewer => {
+            const statusConfig = {
+                'Completed': {
+                    icon: '✅',
+                    color: '#34a853',
+                    bgColor: '#e6f4ea',
+                    text: '已完成审稿'
+                },
+                'In Review': {
+                    icon: '🔍',
+                    color: '#4285f4',
+                    bgColor: '#e8f0fe',
+                    text: '正在审稿'
+                },
+                'Invited': {
+                    icon: '⏳',
+                    color: '#fbbc05',
+                    bgColor: '#fef7e0',
+                    text: '已邀请'
+                }
+            }[reviewer.Status];
+            
+            const card = document.createElement('div');
+            card.className = `reviewer-card status-${reviewer.Status.toLowerCase().replace(' ', '-')}`;
+            card.style.borderColor = statusConfig.color;
+            card.style.backgroundColor = statusConfig.bgColor;
+            
+            // 计算时间
+            const responseTime = reviewer.ResponseTime ? `${reviewer.ResponseTime} 天` : '进行中';
+            const reviewTime = reviewer.ReviewTime ? `${reviewer.ReviewTime} 天` : '进行中';
+            
+            card.innerHTML = `
+                <div class="card-header" style="color: ${statusConfig.color}">
+                    <span class="reviewer-number">#${reviewer.Id}</span>
+                    <span class="reviewer-status-badge">
+                        ${statusConfig.icon} ${statusConfig.text}
+                    </span>
+                </div>
+                <div class="card-body">
+                    <div class="timeline">
+                        <div class="timeline-item ${reviewer.InvitedDate ? 'completed' : ''}">
+                            <div class="timeline-icon">📨</div>
+                            <div class="timeline-content">
+                                <div class="timeline-title">邀请审稿</div>
+                                <div class="timeline-date">${formatDateTime(reviewer.InvitedDate)}</div>
+                            </div>
+                        </div>
+                        <div class="timeline-item ${reviewer.AcceptedDate ? 'completed' : ''}">
+                            <div class="timeline-icon">👍</div>
+                            <div class="timeline-content">
+                                <div class="timeline-title">接受邀请</div>
+                                <div class="timeline-date">${formatDateTime(reviewer.AcceptedDate)}</div>
+                            </div>
+                        </div>
+                        <div class="timeline-item ${reviewer.CompletedDate ? 'completed' : ''}">
+                            <div class="timeline-icon">✅</div>
+                            <div class="timeline-content">
+                                <div class="timeline-title">完成审稿</div>
+                                <div class="timeline-date">${formatDateTime(reviewer.CompletedDate)}</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="time-stats">
+                        <div class="time-stat">
+                            <div class="stat-label">响应时间</div>
+                            <div class="stat-value">${responseTime}</div>
+                        </div>
+                        <div class="time-stat">
+                            <div class="stat-label">审稿时间</div>
+                            <div class="stat-value">${reviewTime}</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            cardsGrid.appendChild(card);
+        });
     });
     
     // 将容器添加到页面
@@ -1183,6 +1257,83 @@ function renderDetailedReviewerCards(reviewers) {
             margin: 0 0 10px 0;
         }
         
+        .revision-section {
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        
+        .revision-section:last-child {
+            border-bottom: none;
+        }
+        
+        .revision-header {
+            margin-bottom: 15px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+        
+        .revision-title {
+            font-size: 16px;
+            margin: 0 0 10px 0;
+            color: #202124;
+        }
+        
+        .revision-stats {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        
+        .stat-badge {
+            font-size: 12px;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-weight: 500;
+        }
+        
+        .stat-badge.completed {
+            background: #e6f4ea;
+            color: #137333;
+        }
+        
+        .stat-badge.in-review {
+            background: #e8f0fe;
+            color: #1a73e8;
+        }
+        
+        .stat-badge.invited {
+            background: #fef7e0;
+            color: #b0741e;
+        }
+        
+        .progress-container {
+            margin-bottom: 10px;
+        }
+        
+        .progress-label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 6px;
+            font-size: 12px;
+            color: #5f6368;
+        }
+        
+        .progress-bar {
+            height: 8px;
+            background-color: #e0e0e0;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background-color: #34a853;
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        }
+        
         .cards-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
@@ -1196,6 +1347,7 @@ function renderDetailedReviewerCards(reviewers) {
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
             overflow: hidden;
             transition: all 0.3s ease;
+            border-left: 4px solid;
         }
         
         .reviewer-card:hover {
