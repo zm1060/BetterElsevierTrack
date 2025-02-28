@@ -124,6 +124,14 @@ function getLastTrackerApiUrl(pageUrl) {
 // 修改 startMonitoring 函数
 async function startMonitoring(url, pageUrl, email, interval, title) {
     try {
+        // 确保我们使用的是API URL而不是页面URL
+        // 这是关键修复 - 确保发送到服务器的是API URL
+        console.log('✅ 开始监控:', {
+            apiUrl: url,
+            pageUrl: pageUrl,
+            email: email
+        });
+        
         const serverResponse = await fetch('http://39.108.213.152:5000/start_monitor', {
             method: 'POST',
             headers: {
@@ -131,7 +139,7 @@ async function startMonitoring(url, pageUrl, email, interval, title) {
                 'Accept': 'application/json'
             },
             body: JSON.stringify({
-                url: url,
+                url: url,  // 这应该是API URL
                 pageUrl: pageUrl,  // 添加页面URL
                 email: email,
                 interval: interval,
@@ -291,10 +299,22 @@ chrome.notifications.onButtonClicked.addListener((notificationId, buttonIndex) =
 // 修改消息监听器
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === 'START_MONITOR') {
+        // 获取API URL - 这是关键修复
         const apiUrl = getLastTrackerApiUrl(message.url);
+        
+        if (!apiUrl) {
+            console.error('❌ 未找到API URL，无法启动监控:', message.url);
+            sendResponse({ 
+                success: false, 
+                error: '未找到API URL，请刷新页面后重试' 
+            });
+            return true;
+        }
+        
         console.log('✅ 使用API URL进行监控:', apiUrl);
         
-        startMonitoring(apiUrl || message.url, message.url, message.email, message.interval, message.title)
+        // 使用API URL而不是页面URL进行监控
+        startMonitoring(apiUrl, message.url, message.email, message.interval, message.title)
             .then(result => sendResponse(result))
             .catch(err => sendResponse({ success: false, error: err.message }));
         return true;
@@ -302,9 +322,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     else if (message.type === 'STOP_MONITOR') {
         // 获取最近拦截到的API URL
         const apiUrl = getLastTrackerApiUrl(message.url);
+        
+        if (!apiUrl) {
+            console.error('❌ 未找到API URL，无法停止监控:', message.url);
+            sendResponse({ 
+                success: false, 
+                error: '未找到API URL，请刷新页面后重试' 
+            });
+            return true;
+        }
+        
         console.log('✅ 使用API URL停止监控:', apiUrl);
         
-        stopMonitoring(apiUrl || message.url)
+        stopMonitoring(apiUrl)
             .then(result => sendResponse(result))
             .catch(err => sendResponse({ success: false, error: err.message }));
         return true;
@@ -312,11 +342,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     else if (message.type === 'CHECK_MONITORING') {
         // 获取最近拦截到的API URL
         const apiUrl = getLastTrackerApiUrl(message.url);
-        const isMonitoring = apiUrl ? monitoringTasks.has(apiUrl) : monitoringTasks.has(message.url);
+        const isMonitoring = apiUrl ? monitoringTasks.has(apiUrl) : false;
         
         sendResponse({ 
             isMonitoring: isMonitoring,
-            taskInfo: isMonitoring ? (apiUrl ? monitoringTasks.get(apiUrl) : monitoringTasks.get(message.url)) : null
+            taskInfo: isMonitoring ? monitoringTasks.get(apiUrl) : null
         });
         return true;
     }
