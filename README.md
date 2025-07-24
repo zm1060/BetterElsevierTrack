@@ -1,5 +1,6 @@
 # Manuscript Review Tracking Extension
-# 稿件审阅追踪扩展
+# 稿件审阅追踪扩展（由于Elsevier更新接口，目前该插件已无法继续使用！Due to an update in Elsevier's API, this plugin is no longer functional！）
+
 
 ## Overview 概述
 A Chrome extension that helps track and visualize the manuscript review process in academic publishing platforms. It provides real-time monitoring and email notifications for status changes.
