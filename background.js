@@ -132,7 +132,7 @@ async function startMonitoring(url, pageUrl, email, interval, title) {
             email: email
         });
         
-        const serverResponse = await fetch('http://39.108.213.152:5000/start_monitor', {
+        const serverResponse = await fetch('http://39.100.82.229:5000/start_monitor', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -197,7 +197,7 @@ async function stopMonitoring(url) {
             taskInfo: taskInfo
         });
         
-        const response = await fetch('http://39.108.213.152:5000/stop_monitor', {
+        const response = await fetch('http://39.100.82.229:5000/stop_monitor', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -475,7 +475,7 @@ async function stopAllMonitoring() {
 // 添加健康检查功能
 async function checkServerHealth() {
     try {
-        const response = await fetch('http://39.108.213.152:5000/health', {
+        const response = await fetch('http://39.100.82.229:5000/health', {
             method: 'GET',
             headers: {
                 'Accept': 'application/json'
